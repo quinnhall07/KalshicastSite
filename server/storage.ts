@@ -1,3 +1,4 @@
+// storage.ts
 import { supabaseAdmin } from "./supabase";
 
 type LocationLike = {
@@ -28,25 +29,74 @@ function iso(d: Date) {
 }
 
 export const storage = {
-  // ... existing methods ...
+  // “Locations” in your app == stations in Supabase
+  async getLocations(): Promise<LocationLike[]> {
+    const { data, error } = await supabaseAdmin
+      .from("stations")
+      .select("station_id,name,lat,lon")
+      .order("name", { ascending: true });
+
+    if (error) throw error;
+
+    return (data ?? []).map((s) => ({
+      id: s.station_id,
+      name: s.name,
+      code: s.station_id,
+      lat: s.lat?.toString() ?? null,
+      long: s.lon?.toString() ?? null,
+    }));
+  },
+
+  async getLocation(id: string): Promise<LocationLike | null> {
+    const { data, error } = await supabaseAdmin
+      .from("stations")
+      .select("station_id,name,lat,lon")
+      .eq("station_id", id)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!data) return null;
+
+    return {
+      id: data.station_id,
+      name: data.name,
+      code: data.station_id,
+      lat: data.lat?.toString() ?? null,
+      long: data.lon?.toString() ?? null,
+    };
+  },
+
+  // Disable create/update locations for now
+  async createLocation() {
+    throw new Error("Creating stations is disabled. Stations come from Supabase.");
+  },
+  async updateLocation() {
+    throw new Error("Updating stations is disabled. Stations come from Supabase.");
+  },
+
   async getForecasts(filters: {
     locationId?: string;
     source?: string;
     startDate?: string;
     endDate?: string;
-  }): Promise<ForecastLike[]> {
+  }): Promise<
+    Array<
+      ForecastLike & {
+        forecastDate?: string | null;
+        fetchedAt?: string | null;
+      }
+    >
+  > {
     let q = supabaseAdmin
       .from("forecasts")
-      .select("station_id,source_id,target_date,high,low,sources(name)")
+      .select("station_id,source_id,forecast_date,target_date,high,low,fetched_at,sources(name)")
       .order("target_date", { ascending: true });
 
     if (filters.locationId) q = q.eq("station_id", filters.locationId);
     if (filters.startDate) q = q.gte("target_date", filters.startDate);
     if (filters.endDate) q = q.lte("target_date", filters.endDate);
 
-    if (filters.source) {
-      q = q.eq("source_id", filters.source);
-    }
+    if (filters.source) q = q.eq("source_id", filters.source);
 
     const { data, error } = await q;
     if (error) throw error;
@@ -57,15 +107,104 @@ export const storage = {
       targetDate: f.target_date,
       highTemp: f.high ?? null,
       lowTemp: f.low ?? null,
+      forecastDate: f.forecast_date ?? null,
+      fetchedAt: f.fetched_at ?? null,
     }));
 
-    if (filters.source) {
-      rows = rows.filter(
-        (r) => r.source === filters.source
-      );
+    return rows;
+  },
+
+  async getChartForecastVsObservation(params: {
+    locationId: string;
+    days?: number;
+    leadDays?: number;
+  }) {
+    const days = params.days ?? 30;
+    const leadDays = params.leadDays ?? 2;
+
+    const end = new Date();
+    const start = new Date();
+    start.setDate(start.getDate() - (days - 1));
+
+    const startDate = iso(start);
+    const endDate = iso(end);
+
+    const observations = await this.getObservations({
+      locationId: params.locationId,
+      startDate,
+      endDate,
+    });
+
+    const forecastStart = new Date(start);
+    forecastStart.setDate(forecastStart.getDate() - leadDays);
+
+    const forecasts = await this.getForecasts({
+      locationId: params.locationId,
+      startDate: iso(forecastStart),
+      endDate,
+    });
+
+    const dates: string[] = [];
+    for (let i = 0; i < days; i++) {
+      const d = new Date(start);
+      d.setDate(start.getDate() + i);
+      dates.push(iso(d));
     }
 
-    return rows;
+    const obsByDate = new Map<string, { high: number | null; low: number | null }>();
+    for (const o of observations) {
+      obsByDate.set(o.date, { high: o.highTemp ?? null, low: o.lowTemp ?? null });
+    }
+
+    const parseISODate = (s: string) => new Date(`${s}T00:00:00Z`);
+    const diffDays = (aISO: string, bISO: string) => {
+      const a = parseISODate(aISO).getTime();
+      const b = parseISODate(bISO).getTime();
+      return Math.round((a - b) / (1000 * 60 * 60 * 24));
+    };
+
+    const bySourceTarget = new Map<string, any>();
+    for (const f of forecasts as any[]) {
+      if (!f.forecastDate) continue;
+      if (diffDays(f.targetDate, f.forecastDate) !== leadDays) continue;
+
+      const key = `${f.source}__${f.targetDate}`;
+      const prev = bySourceTarget.get(key);
+
+      if (!prev) {
+        bySourceTarget.set(key, f);
+        continue;
+      }
+
+      const prevT = prev.fetchedAt ? new Date(prev.fetchedAt).getTime() : 0;
+      const curT = f.fetchedAt ? new Date(f.fetchedAt).getTime() : 0;
+      if (curT >= prevT) bySourceTarget.set(key, f);
+    }
+
+    const sources = Array.from(new Set((forecasts as any[]).map((f) => f.source))).sort();
+
+    const observedHigh = dates.map((d) => obsByDate.get(d)?.high ?? null);
+    const observedLow  = dates.map((d) => obsByDate.get(d)?.low ?? null);
+
+    const models: Record<string, { high: (number | null)[]; low: (number | null)[] }> = {};
+    for (const source of sources) {
+      models[source] = {
+        high: dates.map((d) => bySourceTarget.get(`${source}__${d}`)?.highTemp ?? null),
+        low:  dates.map((d) => bySourceTarget.get(`${source}__${d}`)?.lowTemp ?? null),
+      };
+    }
+
+    return {
+      locationId: params.locationId,
+      startDate,
+      endDate,
+      days,
+      leadDays,
+      dates,
+      sources,
+      observed: { high: observedHigh, low: observedLow },
+      models,
+    };
   },
 
   async getObservations(filters: {
@@ -139,7 +278,7 @@ export const storage = {
         bySource.set(key, cur);
       }
 
-      for (const [sourceId, agg] of bySource.entries()) {
+      for (const [sourceId, agg] of Array.from(bySource.entries())) {
         results.push({
           source: agg.name,
           sourceId,
@@ -153,5 +292,4 @@ export const storage = {
 
     return results;
   },
-};
 };

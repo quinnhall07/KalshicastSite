@@ -7,18 +7,6 @@ import {
   useAccuracyStats,
 } from "@/hooks/use-weather";
 import { StatsCard } from "@/components/StatsCard";
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  ReferenceArea,
-} from "recharts";
-import { format, parseISO, subDays, addDays } from "date-fns";
 import { Card } from "@/components/ui/card";
 import {
   Select,
@@ -27,8 +15,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useChart } from "@/hooks/use-chart";
+import ForecastObservationChart from "@/components/ForecastObservationChart";
+import AccuracyTable from "@/components/AccuracyTable";
 import { Loader2, CloudSun, ThermometerSun } from "lucide-react";
-import { cn } from "@/lib/utils";
 
 export default function Dashboard() {
   const [selectedLocationId, setSelectedLocationId] = useState<string>("");
@@ -43,54 +33,13 @@ export default function Dashboard() {
 
   const currentLocationId = selectedLocationId || undefined;
 
-  const { data: forecasts } = useForecasts(
-    currentLocationId ? { locationId: currentLocationId } : undefined,
-  );
-  const { data: observations } = useObservations(
-    currentLocationId ? { locationId: currentLocationId } : undefined,
-  );
   const { data: stats, isLoading: loadingStats } =
     useAccuracyStats(currentLocationId);
 
-  // Prepare Chart Data
-  const chartData = (() => {
-    if (!forecasts || !observations) return [];
+  const { data: chartPayload, isLoading: loadingChart } = useChart(currentLocationId);
 
-    const dateMap = new Map<string, any>();
-
-    // Get date range (last 30 days + next 7 days)
-    const today = new Date();
-    const startDate = subDays(today, 30);
-    const endDate = addDays(today, 7);
-
-    // Populate observations
-    observations.forEach((obs) => {
-      if (!dateMap.has(obs.date)) dateMap.set(obs.date, { date: obs.date });
-      const entry = dateMap.get(obs.date);
-      entry.observed = obs.highTemp;
-    });
-
-    // Populate forecasts (group by source)
-    forecasts.forEach((forecast) => {
-      const date = forecast.targetDate;
-      if (!dateMap.has(date)) dateMap.set(date, { date });
-      const entry = dateMap.get(date);
-      // Dynamic key for each source: e.g., "NOAA", "AccuWeather"
-      entry[forecast.source] = forecast.highTemp;
-    });
-
-    return Array.from(dateMap.values()).sort(
-      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
-    );
-  })();
-
-  // Extract unique sources for chart lines
-  const sources = forecasts
-    ? Array.from(new Set(forecasts.map((f) => f.source)))
-    : [];
-
-  // Colors for different sources
-  const colors = ["#8884d8", "#82ca9d", "#ffc658", "#ff7300", "#00C49F"];
+  const sources = chartPayload?.sources || [];
+  const colors = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6"];
 
   return (
     <div className="min-h-screen pb-20">
@@ -111,8 +60,7 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-          </div>
+          <div className="flex items-center gap-3"></div>
         </div>
       </header>
 
@@ -160,7 +108,7 @@ export default function Dashboard() {
                 Forecast vs. Observation
               </h2>
               <p className="text-sm text-muted-foreground mt-1">
-                Comparing predicted highs against actual recorded temperatures.
+                Predicted highs/lows vs observed highs/lows for the last 30 days (gaps preserved).
               </p>
             </div>
 
@@ -169,7 +117,7 @@ export default function Dashboard() {
                 <span className="w-3 h-3 rounded-full bg-white border border-white/20" />
                 <span className="text-muted-foreground">Observed</span>
               </div>
-              {sources.map((source, i) => (
+              {sources.map((source: string, i: number) => (
                 <div key={source} className="flex items-center gap-2">
                   <span
                     className="w-3 h-3 rounded-full"
@@ -182,78 +130,18 @@ export default function Dashboard() {
           </div>
 
           <div className="flex-1 w-full min-h-[400px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart
-                data={chartData}
-                margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-              >
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="rgba(255,255,255,0.05)"
-                  vertical={false}
-                />
-                <XAxis
-                  dataKey="date"
-                  stroke="rgba(255,255,255,0.3)"
-                  tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 12 }}
-                  tickFormatter={(date) => format(parseISO(date), "MMM d")}
-                  minTickGap={30}
-                />
-                <YAxis
-                  stroke="rgba(255,255,255,0.3)"
-                  tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 12 }}
-                  domain={["auto", "auto"]}
-                  unit="°F"
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "rgba(20, 20, 30, 0.95)",
-                    borderColor: "rgba(255,255,255,0.1)",
-                    borderRadius: "12px",
-                    boxShadow: "0 10px 40px -10px rgba(0,0,0,0.5)",
-                    color: "#fff",
-                  }}
-                  itemStyle={{ fontSize: "13px", padding: "2px 0" }}
-                  labelStyle={{
-                    marginBottom: "8px",
-                    color: "#aaa",
-                    fontSize: "12px",
-                  }}
-                  labelFormatter={(date) =>
-                    format(parseISO(date as string), "EEEE, MMMM do, yyyy")
-                  }
-                />
-
-                {/* Observed Line (Thick, White) */}
-                <Line
-                  type="monotone"
-                  dataKey="observed"
-                  stroke="#fff"
-                  strokeWidth={3}
-                  dot={{ r: 4, fill: "#fff", strokeWidth: 0 }}
-                  activeDot={{ r: 6, fill: "#fff" }}
-                  connectNulls
-                  name="Observed High"
-                />
-
-                {/* Forecast Lines (Colors) */}
-                {sources.map((source, i) => (
-                  <Line
-                    key={source}
-                    type="monotone"
-                    dataKey={source}
-                    stroke={colors[i % colors.length]}
-                    strokeWidth={2}
-                    dot={false}
-                    strokeDasharray="5 5"
-                    activeDot={{ r: 5 }}
-                    connectNulls
-                    name={`${source} Prediction`}
-                  />
-                ))}
-              </LineChart>
-            </ResponsiveContainer>
+            {loadingChart ? (
+              <div className="flex items-center justify-center h-full">
+                <Loader2 className="w-8 h-8 animate-spin text-primary" />
+              </div>
+            ) : chartPayload ? (
+              <ForecastObservationChart data={chartPayload} />
+            ) : (
+              <div className="text-muted-foreground">No chart data.</div>
+            )}
           </div>
+
+          {stats?.metrics?.length ? <AccuracyTable metrics={stats.metrics} /> : null}
         </Card>
       </main>
     </div>

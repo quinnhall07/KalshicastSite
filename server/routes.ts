@@ -154,17 +154,45 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/chart/forecast-vs-observation", async (req, res) => {
+    try {
+      const locationId = req.query.locationId
+        ? String(req.query.locationId)
+        : "";
+      if (!locationId)
+        return res.status(400).json({ message: "locationId is required" });
+
+      const days = req.query.days ? Number(req.query.days) : 30;
+      const leadDays = req.query.leadDays ? Number(req.query.leadDays) : 2;
+
+      const payload = await storage.getChartForecastVsObservation({
+        locationId,
+        days,
+        leadDays,
+      });
+
+      res.json(payload);
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({
+        message: "Failed to build chart payload",
+        error: e?.message ?? String(e),
+      });
+    }
+  });
+
   // Stats
   app.get(api.stats.accuracy.path, async (req, res) => {
     const locationId = req.query.locationId
-      ? Number(req.query.locationId)
+      ? String(req.query.locationId)
       : undefined;
+
     const metrics = await storage.getAccuracyStats(locationId);
 
-    // Find best source for 7d or 30d
+    // Find best source for 7d
     const bestSourceMetric = metrics
       .filter((m: any) => m.period === "7d")
-      .sort((a: any, b: any) => a.mae - b.mae)[0];
+      .sort((a: any, b: any) => (a.mae ?? 0) - (b.mae ?? 0))[0];
 
     res.json({
       metrics,

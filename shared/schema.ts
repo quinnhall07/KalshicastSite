@@ -69,17 +69,18 @@ export type InsertObservation = z.infer<typeof insertObservationSchema>;
 // Derived Types for API
 export interface AccuracyMetric {
   source: string;
-  period: '2d' | '3d' | '7d' | '30d';
+  period: '2d' | '3d' | '7d' | '31d';
   mae: number; // Mean Absolute Error
+  maeHigh: number;
+  maeLow: number;
   rmse: number; // Root Mean Square Error
   bias: number; // Average difference
 }
 
 export interface DashboardStats {
-  bestSource: string;
-  bestSourceMae: number;
-  worstSource: string;
-  worstSourceMae: number;
-  totalForecasts: number;
-  totalObservations: number;
+  metrics: AccuracyMetric[];
+  summary: {
+    bestSource: string;
+    bestSourceMae: number;
+  };
 }

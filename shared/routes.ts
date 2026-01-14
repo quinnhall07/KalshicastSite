@@ -129,7 +129,7 @@ export const api = {
         200: z.object({
           metrics: z.array(z.object({
             source: z.string(),
-            period: z.enum(['2d', '3d', '7d', '30d']),
+            period: z.enum(['2d', '3d', '7d', '31d']),
             mae: z.number(),
           })),
           summary: z.object({
