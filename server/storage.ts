@@ -1,135 +1,217 @@
-import { db } from "./db";
-import {
-  locations, forecasts, observations,
-  type InsertLocation, type InsertForecast, type InsertObservation,
-  type Location, type Forecast, type Observation
-} from "@shared/schema";
-import { eq, and, gte, lte, desc, sql } from "drizzle-orm";
+import { supabaseAdmin } from "./supabase";
 
-export interface IStorage {
-  // Locations
-  getLocations(): Promise<Location[]>;
-  getLocation(id: number): Promise<Location | undefined>;
-  createLocation(location: InsertLocation): Promise<Location>;
+type LocationLike = {
+  id: string; // station_id (text)
+  name: string; // station name
+  code: string; // station_id again (for your UI “KNYC” badge)
+  lat?: string | null;
+  long?: string | null;
+};
 
-  // Forecasts
-  getForecasts(filters?: { locationId?: number, source?: string, startDate?: string, endDate?: string }): Promise<Forecast[]>;
-  createForecast(forecast: InsertForecast): Promise<Forecast>;
+type ForecastLike = {
+  stationId: string;
+  source: string; // source name (GFS, ECMWF, etc.)
+  targetDate: string; // YYYY-MM-DD
+  highTemp: number | null;
+};
 
-  // Observations
-  getObservations(filters?: { locationId?: number, startDate?: string, endDate?: string }): Promise<Observation[]>;
-  createObservation(observation: InsertObservation): Promise<Observation>;
+type ObservationLike = {
+  stationId: string;
+  date: string; // YYYY-MM-DD
+  highTemp: number | null;
+};
 
-  // Analytics
-  getAccuracyStats(locationId?: number): Promise<any>;
+function iso(d: Date) {
+  return d.toISOString().slice(0, 10);
 }
 
-export class DatabaseStorage implements IStorage {
-  async getLocations(): Promise<Location[]> {
-    return await db.select().from(locations);
-  }
+export const storage = {
+  // “Locations” in your app == stations in Supabase
+  async getLocations(): Promise<LocationLike[]> {
+    const { data, error } = await supabaseAdmin
+      .from("stations")
+      .select("station_id,name,lat,lon")
+      .order("name", { ascending: true });
 
-  async getLocation(id: number): Promise<Location | undefined> {
-    const [loc] = await db.select().from(locations).where(eq(locations.id, id));
-    return loc;
-  }
+    if (error) throw error;
 
-  async createLocation(location: InsertLocation): Promise<Location> {
-    const [newLoc] = await db.insert(locations).values(location).returning();
-    return newLoc;
-  }
+    return (data ?? []).map((s) => ({
+      id: s.station_id,
+      name: s.name,
+      code: s.station_id,
+      lat: s.lat?.toString() ?? null,
+      long: s.lon?.toString() ?? null,
+    }));
+  },
 
-  async getForecasts(filters?: { locationId?: number, source?: string, startDate?: string, endDate?: string }): Promise<Forecast[]> {
-    let conditions = [];
-    if (filters?.locationId) conditions.push(eq(forecasts.locationId, filters.locationId));
-    if (filters?.source) conditions.push(eq(forecasts.source, filters.source));
-    if (filters?.startDate) conditions.push(gte(forecasts.targetDate, filters.startDate));
-    if (filters?.endDate) conditions.push(lte(forecasts.targetDate, filters.endDate));
+  async getLocation(id: string): Promise<LocationLike | null> {
+    const { data, error } = await supabaseAdmin
+      .from("stations")
+      .select("station_id,name,lat,lon")
+      .eq("station_id", id)
+      .maybeSingle();
 
-    return await db.select().from(forecasts)
-      .where(conditions.length ? and(...conditions) : undefined)
-      .orderBy(desc(forecasts.targetDate));
-  }
+    if (error) throw error;
+    if (!data) return null;
 
-  async createForecast(forecast: InsertForecast): Promise<Forecast> {
-    const [newForecast] = await db.insert(forecasts).values(forecast).returning();
-    return newForecast;
-  }
+    return {
+      id: data.station_id,
+      name: data.name,
+      code: data.station_id,
+      lat: data.lat?.toString() ?? null,
+      long: data.lon?.toString() ?? null,
+    };
+  },
 
-  async getObservations(filters?: { locationId?: number, startDate?: string, endDate?: string }): Promise<Observation[]> {
-    let conditions = [];
-    if (filters?.locationId) conditions.push(eq(observations.locationId, filters.locationId));
-    if (filters?.startDate) conditions.push(gte(observations.date, filters.startDate));
-    if (filters?.endDate) conditions.push(lte(observations.date, filters.endDate));
+  // Disable create/update locations for now (you asked to remove Add Station)
+  async createLocation() {
+    throw new Error(
+      "Creating stations is disabled. Stations come from Supabase.",
+    );
+  },
+  async updateLocation() {
+    throw new Error(
+      "Updating stations is disabled. Stations come from Supabase.",
+    );
+  },
 
-    return await db.select().from(observations)
-      .where(conditions.length ? and(...conditions) : undefined)
-      .orderBy(desc(observations.date));
-  }
+  async getForecasts(filters: {
+    locationId?: string; // station_id
+    source?: string; // source name or source_id (we’ll accept either)
+    startDate?: string;
+    endDate?: string;
+  }): Promise<ForecastLike[]> {
+    let q = supabaseAdmin
+      .from("forecasts")
+      .select("station_id,source_id,target_date,high,sources(name)")
+      .order("target_date", { ascending: true });
 
-  async createObservation(observation: InsertObservation): Promise<Observation> {
-    const [newObs] = await db.insert(observations).values(observation).returning();
-    return newObs;
-  }
+    if (filters.locationId) q = q.eq("station_id", filters.locationId);
+    if (filters.startDate) q = q.gte("target_date", filters.startDate);
+    if (filters.endDate) q = q.lte("target_date", filters.endDate);
 
-  async getAccuracyStats(locationId?: number): Promise<any> {
-    // This is a simplified calculation. Ideally, this would be a complex SQL query.
-    // We'll fetch data and compute in memory for simplicity in this MVP, 
-    // but for production with large data, use raw SQL aggregation.
-    
-    // Fetch last 30 days of data
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const startDate = thirtyDaysAgo.toISOString().split('T')[0];
+    // If they pass a source, we match either source_id or sources.name
+    if (filters.source) {
+      // Supabase doesn't do OR across relations cleanly in one call;
+      // simplest: filter by source_id first, fallback to name in memory.
+      q = q.eq("source_id", filters.source);
+    }
 
-    const obs = await this.getObservations({ locationId, startDate });
-    const preds = await this.getForecasts({ locationId, startDate });
+    const { data, error } = await q;
+    if (error) throw error;
 
-    // Map observations by date and location
-    const obsMap = new Map<string, number>();
-    obs.forEach(o => obsMap.set(`${o.locationId}-${o.date}`, o.highTemp));
+    let rows = (data ?? []).map((f: any) => ({
+      stationId: f.station_id,
+      source: f.sources?.name ?? f.source_id,
+      targetDate: f.target_date,
+      highTemp: f.high ?? null,
+    }));
 
-    // Group predictions by source
-    const sourceErrors: Record<string, number[]> = {};
-    const periods = { '2d': 2, '3d': 3, '7d': 7, '30d': 30 };
-    
+    if (filters.source) {
+      rows = rows.filter(
+        (r) => r.source === filters.source || r.source === filters.source,
+      );
+    }
+
+    return rows;
+  },
+
+  async getObservations(filters: {
+    locationId?: string; // station_id
+    startDate?: string;
+    endDate?: string;
+  }): Promise<ObservationLike[]> {
+    let q = supabaseAdmin
+      .from("observations")
+      .select("station_id,date,observed_high")
+      .order("date", { ascending: true });
+
+    if (filters.locationId) q = q.eq("station_id", filters.locationId);
+    if (filters.startDate) q = q.gte("date", filters.startDate);
+    if (filters.endDate) q = q.lte("date", filters.endDate);
+
+    const { data, error } = await q;
+    if (error) throw error;
+
+    return (data ?? []).map((o) => ({
+      stationId: o.station_id,
+      date: o.date,
+      highTemp: o.observed_high ?? null,
+    }));
+  },
+
+  // Forecast/observation editing can come later under “Modify Data”
+  async createForecast() {
+    throw new Error("Use Modify Data for edits (not wired yet).");
+  },
+  async updateForecast() {
+    throw new Error("Use Modify Data for edits (not wired yet).");
+  },
+  async createObservation() {
+    throw new Error("Use Modify Data for edits (not wired yet).");
+  },
+  async updateObservation() {
+    throw new Error("Use Modify Data for edits (not wired yet).");
+  },
+
+  async getAccuracyStats(stationId?: string) {
+    // Use scores table: MAE = avg(abs(high_error)) by source over time windows
+    const today = new Date();
+    const windows = [
+      { period: "2d", days: 2 },
+      { period: "3d", days: 3 },
+      { period: "7d", days: 7 },
+      { period: "30d", days: 30 },
+    ] as const;
+
     const results: any[] = [];
 
-    // Simple MAE calculation per source
-    const sources = [...new Set(preds.map(p => p.source))];
+    for (const w of windows) {
+      const start = new Date(today);
+      start.setDate(start.getDate() - w.days);
 
-    for (const source of sources) {
-      const sourcePreds = preds.filter(p => p.source === source);
-      
-      for (const [periodLabel, days] of Object.entries(periods)) {
-        const cutoffDate = new Date();
-        cutoffDate.setDate(cutoffDate.getDate() - days);
-        const cutoffStr = cutoffDate.toISOString().split('T')[0];
+      let q = supabaseAdmin
+        .from("scores")
+        .select("source_id,high_error,sources(name),target_date,station_id")
+        .gte("target_date", iso(start))
+        .lte("target_date", iso(today));
 
-        const relevantPreds = sourcePreds.filter(p => p.targetDate >= cutoffStr);
-        let totalError = 0;
-        let count = 0;
+      if (stationId) q = q.eq("station_id", stationId);
 
-        for (const pred of relevantPreds) {
-          const key = `${pred.locationId}-${pred.targetDate}`;
-          if (obsMap.has(key)) {
-            totalError += Math.abs(pred.highTemp - obsMap.get(key)!);
-            count++;
-          }
-        }
+      const { data, error } = await q;
+      if (error) throw error;
 
-        if (count > 0) {
-          results.push({
-            source,
-            period: periodLabel,
-            mae: Number((totalError / count).toFixed(2))
-          });
-        }
+      const bySource = new Map<
+        string,
+        { name: string; sum: number; n: number }
+      >();
+
+      for (const row of data ?? []) {
+        const name = (row as any).sources?.name ?? row.source_id;
+        const key = row.source_id;
+
+        const err = (row as any).high_error;
+        if (err === null || err === undefined) continue;
+
+        const abs = Math.abs(Number(err));
+        const cur = bySource.get(key) ?? { name, sum: 0, n: 0 };
+        cur.sum += abs;
+        cur.n += 1;
+        bySource.set(key, cur);
+      }
+
+      for (const [sourceId, agg] of bySource.entries()) {
+        results.push({
+          source: agg.name,
+          sourceId,
+          period: w.period,
+          mae: agg.n ? agg.sum / agg.n : 0,
+          rmse: 0,
+          bias: 0,
+        });
       }
     }
 
     return results;
-  }
-}
-
-export const storage = new DatabaseStorage();
+  },
+};

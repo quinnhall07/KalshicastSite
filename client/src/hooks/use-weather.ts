@@ -1,13 +1,13 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, buildUrl } from "@shared/routes";
 import { z } from "zod";
-import type { 
-  InsertLocation, 
-  InsertForecast, 
+import type {
+  InsertLocation,
+  InsertForecast,
   InsertObservation,
   Location,
   Forecast,
-  Observation
+  Observation,
 } from "@shared/schema";
 
 // --- Locations ---
@@ -58,7 +58,12 @@ export function useCreateLocation() {
 
 // --- Forecasts ---
 
-export function useForecasts(filters?: { locationId?: number; source?: string; startDate?: string; endDate?: string }) {
+export function useForecasts(filters?: {
+  locationId?: string;
+  source?: string;
+  startDate?: string;
+  endDate?: string;
+}) {
   return useQuery({
     queryKey: [api.forecasts.list.path, filters],
     queryFn: async () => {
@@ -96,7 +101,11 @@ export function useCreateForecast() {
 
 // --- Observations ---
 
-export function useObservations(filters?: { locationId?: number; startDate?: string; endDate?: string }) {
+export function useObservations(filters?: {
+  locationId?: string;
+  startDate?: string;
+  endDate?: string;
+}) {
   return useQuery({
     queryKey: [api.observations.list.path, filters],
     queryFn: async () => {
@@ -134,13 +143,13 @@ export function useCreateObservation() {
 
 // --- Stats ---
 
-export function useAccuracyStats(locationId?: number) {
+export function useAccuracyStats(locationId?: string) {
   return useQuery({
     queryKey: [api.stats.accuracy.path, locationId],
     queryFn: async () => {
       const url = new URL(api.stats.accuracy.path, window.location.origin);
       if (locationId) url.searchParams.append("locationId", String(locationId));
-      
+
       const res = await fetch(url.toString());
       if (!res.ok) throw new Error("Failed to fetch accuracy stats");
       return api.stats.accuracy.responses[200].parse(await res.json());

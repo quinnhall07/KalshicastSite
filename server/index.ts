@@ -1,3 +1,33 @@
+// index.ts
+
+import "dotenv/config";
+
+process.on("unhandledRejection", (reason) => {
+  console.error("UNHANDLED REJECTION:", reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("UNCAUGHT EXCEPTION:", err);
+});
+
+
+console.log(
+  "ENV CHECK",
+  Object.keys(process.env).filter((k) => k.includes("SUPABASE")),
+);
+console.log("SUPABASE_URL?", process.env.SUPABASE_URL ? "SET" : "MISSING");
+console.log(
+  "SUPABASE_ANON_KEY?",
+  process.env.SUPABASE_ANON_KEY ? "SET" : "MISSING",
+);
+console.log(
+  "SUPABASE_SECRET_KEY?",
+  process.env.SUPABASE_SECRET_KEY ? "SET" : "MISSING",
+);
+console.log(
+  "SUPABASE_SERVICE_ROLE_KEY?",
+  process.env.SUPABASE_SERVICE_ROLE_KEY ? "SET" : "MISSING",
+);
+
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
