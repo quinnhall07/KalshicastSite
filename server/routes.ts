@@ -14,16 +14,16 @@ export async function registerRoutes(
     res.json(locations);
   });
 
-  app.post(api.locations.create.path, async (req, res) => {
+  app.patch(api.locations.update.path, async (req, res) => {
     try {
-      const input = api.locations.create.input.parse(req.body);
-      const location = await storage.createLocation(input);
-      res.status(201).json(location);
+      const input = api.locations.update.input.parse(req.body);
+      const location = await storage.updateLocation(Number(req.params.id), input);
+      res.json(location);
     } catch (err) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ message: err.errors[0].message });
       }
-      throw err;
+      res.status(404).json({ message: "Location not found" });
     }
   });
 
@@ -43,6 +43,19 @@ export async function registerRoutes(
     };
     const forecasts = await storage.getForecasts(filters);
     res.json(forecasts);
+  });
+
+  app.patch(api.forecasts.update.path, async (req, res) => {
+    try {
+      const input = api.forecasts.update.input.parse(req.body);
+      const forecast = await storage.updateForecast(Number(req.params.id), input);
+      res.json(forecast);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      res.status(404).json({ message: "Forecast not found" });
+    }
   });
 
   app.post(api.forecasts.create.path, async (req, res) => {
@@ -67,6 +80,19 @@ export async function registerRoutes(
     };
     const observations = await storage.getObservations(filters);
     res.json(observations);
+  });
+
+  app.patch(api.observations.update.path, async (req, res) => {
+    try {
+      const input = api.observations.update.input.parse(req.body);
+      const observation = await storage.updateObservation(Number(req.params.id), input);
+      res.json(observation);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      res.status(404).json({ message: "Observation not found" });
+    }
   });
 
   app.post(api.observations.create.path, async (req, res) => {

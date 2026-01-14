@@ -40,6 +40,16 @@ export const api = {
         404: errorSchemas.notFound,
       },
     },
+    update: {
+      method: 'PATCH' as const,
+      path: '/api/locations/:id',
+      input: insertLocationSchema.partial(),
+      responses: {
+        200: z.custom<typeof locations.$inferSelect>(),
+        400: errorSchemas.validation,
+        404: errorSchemas.notFound,
+      },
+    },
   },
   forecasts: {
     list: {
@@ -53,6 +63,16 @@ export const api = {
       }).optional(),
       responses: {
         200: z.array(z.custom<typeof forecasts.$inferSelect>()),
+      },
+    },
+    update: {
+      method: 'PATCH' as const,
+      path: '/api/forecasts/:id',
+      input: insertForecastSchema.partial(),
+      responses: {
+        200: z.custom<typeof forecasts.$inferSelect>(),
+        400: errorSchemas.validation,
+        404: errorSchemas.notFound,
       },
     },
     create: {
@@ -76,6 +96,16 @@ export const api = {
       }).optional(),
       responses: {
         200: z.array(z.custom<typeof observations.$inferSelect>()),
+      },
+    },
+    update: {
+      method: 'PATCH' as const,
+      path: '/api/observations/:id',
+      input: insertObservationSchema.partial(),
+      responses: {
+        200: z.custom<typeof observations.$inferSelect>(),
+        400: errorSchemas.validation,
+        404: errorSchemas.notFound,
       },
     },
     create: {
