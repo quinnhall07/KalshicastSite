@@ -6,7 +6,6 @@ import {
   useObservations,
   useAccuracyStats,
 } from "@/hooks/use-weather";
-import { AddDataDialog } from "@/components/AddDataDialog";
 import { StatsCard } from "@/components/StatsCard";
 import {
   LineChart,
@@ -113,7 +112,6 @@ export default function Dashboard() {
           </div>
 
           <div className="flex items-center gap-3">
-            <AddDataDialog />
           </div>
         </div>
       </header>
