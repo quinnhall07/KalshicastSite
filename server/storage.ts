@@ -10,15 +10,17 @@ type LocationLike = {
 
 type ForecastLike = {
   stationId: string;
-  source: string; // source name (GFS, ECMWF, etc.)
-  targetDate: string; // YYYY-MM-DD
+  source: string;
+  targetDate: string;
   highTemp: number | null;
+  lowTemp: number | null;
 };
 
 type ObservationLike = {
   stationId: string;
-  date: string; // YYYY-MM-DD
+  date: string;
   highTemp: number | null;
+  lowTemp: number | null;
 };
 
 function iso(d: Date) {
@@ -26,74 +28,23 @@ function iso(d: Date) {
 }
 
 export const storage = {
-  // “Locations” in your app == stations in Supabase
-  async getLocations(): Promise<LocationLike[]> {
-    const { data, error } = await supabaseAdmin
-      .from("stations")
-      .select("station_id,name,lat,lon")
-      .order("name", { ascending: true });
-
-    if (error) throw error;
-
-    return (data ?? []).map((s) => ({
-      id: s.station_id,
-      name: s.name,
-      code: s.station_id,
-      lat: s.lat?.toString() ?? null,
-      long: s.lon?.toString() ?? null,
-    }));
-  },
-
-  async getLocation(id: string): Promise<LocationLike | null> {
-    const { data, error } = await supabaseAdmin
-      .from("stations")
-      .select("station_id,name,lat,lon")
-      .eq("station_id", id)
-      .maybeSingle();
-
-    if (error) throw error;
-    if (!data) return null;
-
-    return {
-      id: data.station_id,
-      name: data.name,
-      code: data.station_id,
-      lat: data.lat?.toString() ?? null,
-      long: data.lon?.toString() ?? null,
-    };
-  },
-
-  // Disable create/update locations for now (you asked to remove Add Station)
-  async createLocation() {
-    throw new Error(
-      "Creating stations is disabled. Stations come from Supabase.",
-    );
-  },
-  async updateLocation() {
-    throw new Error(
-      "Updating stations is disabled. Stations come from Supabase.",
-    );
-  },
-
+  // ... existing methods ...
   async getForecasts(filters: {
-    locationId?: string; // station_id
-    source?: string; // source name or source_id (we’ll accept either)
+    locationId?: string;
+    source?: string;
     startDate?: string;
     endDate?: string;
   }): Promise<ForecastLike[]> {
     let q = supabaseAdmin
       .from("forecasts")
-      .select("station_id,source_id,target_date,high,sources(name)")
+      .select("station_id,source_id,target_date,high,low,sources(name)")
       .order("target_date", { ascending: true });
 
     if (filters.locationId) q = q.eq("station_id", filters.locationId);
     if (filters.startDate) q = q.gte("target_date", filters.startDate);
     if (filters.endDate) q = q.lte("target_date", filters.endDate);
 
-    // If they pass a source, we match either source_id or sources.name
     if (filters.source) {
-      // Supabase doesn't do OR across relations cleanly in one call;
-      // simplest: filter by source_id first, fallback to name in memory.
       q = q.eq("source_id", filters.source);
     }
 
@@ -105,11 +56,12 @@ export const storage = {
       source: f.sources?.name ?? f.source_id,
       targetDate: f.target_date,
       highTemp: f.high ?? null,
+      lowTemp: f.low ?? null,
     }));
 
     if (filters.source) {
       rows = rows.filter(
-        (r) => r.source === filters.source || r.source === filters.source,
+        (r) => r.source === filters.source
       );
     }
 
@@ -117,13 +69,13 @@ export const storage = {
   },
 
   async getObservations(filters: {
-    locationId?: string; // station_id
+    locationId?: string;
     startDate?: string;
     endDate?: string;
   }): Promise<ObservationLike[]> {
     let q = supabaseAdmin
       .from("observations")
-      .select("station_id,date,observed_high")
+      .select("station_id,date,observed_high,observed_low")
       .order("date", { ascending: true });
 
     if (filters.locationId) q = q.eq("station_id", filters.locationId);
@@ -137,31 +89,17 @@ export const storage = {
       stationId: o.station_id,
       date: o.date,
       highTemp: o.observed_high ?? null,
+      lowTemp: o.observed_low ?? null,
     }));
   },
 
-  // Forecast/observation editing can come later under “Modify Data”
-  async createForecast() {
-    throw new Error("Use Modify Data for edits (not wired yet).");
-  },
-  async updateForecast() {
-    throw new Error("Use Modify Data for edits (not wired yet).");
-  },
-  async createObservation() {
-    throw new Error("Use Modify Data for edits (not wired yet).");
-  },
-  async updateObservation() {
-    throw new Error("Use Modify Data for edits (not wired yet).");
-  },
-
   async getAccuracyStats(stationId?: string) {
-    // Use scores table: MAE = avg(abs(high_error)) by source over time windows
     const today = new Date();
     const windows = [
       { period: "2d", days: 2 },
       { period: "3d", days: 3 },
       { period: "7d", days: 7 },
-      { period: "30d", days: 30 },
+      { period: "31d", days: 31 },
     ] as const;
 
     const results: any[] = [];
@@ -172,7 +110,7 @@ export const storage = {
 
       let q = supabaseAdmin
         .from("scores")
-        .select("source_id,high_error,sources(name),target_date,station_id")
+        .select("source_id,high_error,low_error,sources(name),target_date,station_id")
         .gte("target_date", iso(start))
         .lte("target_date", iso(today));
 
@@ -183,19 +121,20 @@ export const storage = {
 
       const bySource = new Map<
         string,
-        { name: string; sum: number; n: number }
+        { name: string; sumHigh: number; sumLow: number; n: number }
       >();
 
       for (const row of data ?? []) {
         const name = (row as any).sources?.name ?? row.source_id;
         const key = row.source_id;
 
-        const err = (row as any).high_error;
-        if (err === null || err === undefined) continue;
+        const hErr = (row as any).high_error;
+        const lErr = (row as any).low_error;
+        if (hErr === null && lErr === null) continue;
 
-        const abs = Math.abs(Number(err));
-        const cur = bySource.get(key) ?? { name, sum: 0, n: 0 };
-        cur.sum += abs;
+        const cur = bySource.get(key) ?? { name, sumHigh: 0, sumLow: 0, n: 0 };
+        if (hErr !== null) cur.sumHigh += Math.abs(Number(hErr));
+        if (lErr !== null) cur.sumLow += Math.abs(Number(lErr));
         cur.n += 1;
         bySource.set(key, cur);
       }
@@ -205,13 +144,14 @@ export const storage = {
           source: agg.name,
           sourceId,
           period: w.period,
-          mae: agg.n ? agg.sum / agg.n : 0,
-          rmse: 0,
-          bias: 0,
+          maeHigh: agg.n ? agg.sumHigh / agg.n : 0,
+          maeLow: agg.n ? agg.sumLow / agg.n : 0,
+          mae: agg.n ? (agg.sumHigh + agg.sumLow) / (2 * agg.n) : 0,
         });
       }
     }
 
     return results;
   },
+};
 };

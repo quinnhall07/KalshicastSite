@@ -20,6 +20,7 @@ export const forecasts = pgTable("forecasts", {
   source: text("source").notNull(), // e.g. 'NOAA', 'AccuWeather'
   targetDate: text("target_date").notNull(), // YYYY-MM-DD
   highTemp: integer("high_temp").notNull(),
+  lowTemp: integer("low_temp").notNull().default(0),
   predictedAt: timestamp("predicted_at").defaultNow().notNull(),
 });
 
@@ -29,6 +30,7 @@ export const observations = pgTable("observations", {
   locationId: integer("location_id").notNull(),
   date: text("date").notNull(), // YYYY-MM-DD
   highTemp: integer("high_temp").notNull(),
+  lowTemp: integer("low_temp").notNull().default(0),
 });
 
 // Relations
