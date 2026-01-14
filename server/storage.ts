@@ -165,9 +165,6 @@ export const storage = {
 
     const bySourceTarget = new Map<string, any>();
     for (const f of forecasts as any[]) {
-      if (!f.forecastDate) continue;
-      if (diffDays(f.targetDate, f.forecastDate) !== leadDays) continue;
-
       const key = `${f.source}__${f.targetDate}`;
       const prev = bySourceTarget.get(key);
 
@@ -176,9 +173,18 @@ export const storage = {
         continue;
       }
 
-      const prevT = prev.fetchedAt ? new Date(prev.fetchedAt).getTime() : 0;
-      const curT = f.fetchedAt ? new Date(f.fetchedAt).getTime() : 0;
-      if (curT >= prevT) bySourceTarget.set(key, f);
+      // If we have multiple for same day, prefer the one with leadDays exactly
+      // or the latest fetchedAt
+      const prevDiff = f.forecastDate ? diffDays(f.targetDate, f.forecastDate) : -1;
+      const curDiff = f.forecastDate ? diffDays(f.targetDate, f.forecastDate) : -1;
+      
+      if (curDiff === leadDays) {
+        bySourceTarget.set(key, f);
+      } else if (prevDiff !== leadDays) {
+        const prevT = prev.fetchedAt ? new Date(prev.fetchedAt).getTime() : 0;
+        const curT = f.fetchedAt ? new Date(f.fetchedAt).getTime() : 0;
+        if (curT >= prevT) bySourceTarget.set(key, f);
+      }
     }
 
     const sources = Array.from(new Set((forecasts as any[]).map((f) => f.source))).sort();

@@ -3,10 +3,33 @@ import React, { useMemo } from "react";
 type Metric = {
   source: string;
   period: "2d" | "3d" | "7d" | "31d";
-  mae: number;
+  mae: number; // combined
   maeHigh: number;
   maeLow: number;
 };
+
+function MaeTriplet({ m }: { m?: Metric }) {
+  const fmt = (v?: number) =>
+    v == null || Number.isNaN(v) ? "—" : v.toFixed(2);
+  if (!m) return <span className="text-white/40">—</span>;
+
+  return (
+    <div className="text-xs leading-5">
+      <div className="flex gap-2">
+        <span className="w-4 font-semibold text-white/70">H</span>
+        <span className="font-mono text-white/80">{fmt(m.maeHigh)}</span>
+      </div>
+      <div className="flex gap-2">
+        <span className="w-4 font-semibold text-white/70">L</span>
+        <span className="font-mono text-white/80">{fmt(m.maeLow)}</span>
+      </div>
+      <div className="flex gap-2">
+        <span className="w-4 font-semibold text-white/70">B</span>
+        <span className="font-mono text-white/80">{fmt(m.mae)}</span>
+      </div>
+    </div>
+  );
+}
 
 export default function AccuracyTable({ metrics }: { metrics: Metric[] }) {
   const periods: Metric["period"][] = ["2d", "3d", "7d", "31d"];
@@ -43,15 +66,16 @@ export default function AccuracyTable({ metrics }: { metrics: Metric[] }) {
               ))}
             </tr>
           </thead>
+
           <tbody>
             {sources.map((s) => {
               const row = bySource.get(s) || {};
               return (
-                <tr key={s} className="border-b border-white/5">
-                  <td className="py-2 text-white/85">{s}</td>
+                <tr key={s} className="border-b border-white/5 align-top">
+                  <td className="py-2 text-white/85 pr-4">{s}</td>
                   {periods.map((p) => (
-                    <td key={p} className="py-2 text-white/75">
-                      {row[p] ? row[p].mae.toFixed(2) : "—"}
+                    <td key={p} className="py-2">
+                      <MaeTriplet m={row[p]} />
                     </td>
                   ))}
                 </tr>
@@ -62,8 +86,7 @@ export default function AccuracyTable({ metrics }: { metrics: Metric[] }) {
       </div>
 
       <div className="mt-3 text-xs text-white/50">
-        (This table uses the combined MAE; you can also show High/Low MAE if you
-        want.)
+        H = High MAE, L = Low MAE, B = Both/Combined MAE
       </div>
     </div>
   );
