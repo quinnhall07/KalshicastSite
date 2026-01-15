@@ -1,14 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
-export type ChartPayload = {
-  dates: string[];
-  sources: string[];
-  observed: { high: (number | null)[]; low: (number | null)[] };
-  models: Record<string, { high: (number | null)[]; low: (number | null)[] }>;
-};
-
 export function useChart(locationId?: string) {
-  return useQuery<ChartPayload | null>({
+  return useQuery({
     queryKey: ["/api/chart/forecast-vs-observation", locationId],
     queryFn: async () => {
       if (!locationId) return null;
