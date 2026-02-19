@@ -4,6 +4,19 @@ import Link from 'next/link';
 
 export const revalidate = 0; 
 
+// 1. We strictly define the data shape for TypeScript
+interface BestBet {
+  station_id: string;
+  city_name: string;
+  target_type: string;
+  target_date: string;
+  bin_even: number;
+  bin_odd: number;
+  p_yes: number;
+  margin: number;
+  edge_ratio: number;
+}
+
 export default async function Home() {
   const { data: bets, error } = await supabase
     .from('vw_best_bets')
@@ -18,7 +31,6 @@ export default async function Home() {
     <main className="min-h-screen p-8 bg-slate-950 text-slate-50 font-sans">
       <div className="max-w-7xl mx-auto space-y-8">
         
-        {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-800 pb-4">
           <div>
             <h1 className="text-3xl font-bold">Quantitative Weather Bets</h1>
@@ -29,9 +41,9 @@ export default async function Home() {
           </Link>
         </div>
 
-        {/* Bets Grid */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {bets?.map((bet, index) => (
+          {/* 2. We inject the type into the map function here */}
+          {bets?.map((bet: BestBet, index: number) => (
             <div key={index} className="p-5 bg-slate-900 rounded-xl shadow-lg border border-slate-800 flex flex-col gap-3">
               <div className="border-b border-slate-800 pb-2">
                 <h2 className="text-xl font-bold text-blue-400">
