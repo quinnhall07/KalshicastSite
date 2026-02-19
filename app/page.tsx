@@ -2,7 +2,7 @@
 import { supabase } from '../utils/supabase';
 import Link from 'next/link';
 
-export const revalidate = 0; 
+export const dynamic = 'force-dynamic';
 
 // 1. We strictly define the data shape for TypeScript
 interface BestBet {
