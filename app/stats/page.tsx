@@ -1,98 +1,74 @@
-// app/stats/page.tsx
-import { supabase } from '../../utils/supabase';
-import Link from 'next/link';
+import { supabase } from "../../utils/supabase"
+import { Header } from "@/components/header"
+import { Footer } from "@/components/footer"
+import { StatsTable } from "@/components/stats-table"
+import { BarChart3 } from "lucide-react"
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic"
 
-// 1. Define the type
 interface DashboardStat {
-  station_id: string;
-  source: string;
-  n: number;
-  bias: number;
-  mae: number;
-  rmse: number;
-  pct_within_1f: number;
+  station_id: string
+  source: string
+  n: number
+  bias: number
+  mae: number
+  rmse: number
+  pct_within_1f: number
 }
 
 export default async function StatsDashboard() {
   const { data: stats, error } = await supabase
-    .from('dashboard_stats')
-    .select('*')
-    .eq('kind', 'both')
-    .eq('lead_days', 1)
-    .order('mae', { ascending: true });
+    .from("dashboard_stats")
+    .select("*")
+    .eq("kind", "both")
+    .eq("lead_days", 1)
+    .order("mae", { ascending: true })
 
   if (error) {
-    console.error('Error fetching stats:', error);
-    return <div className="p-8 text-red-500">Error loading dashboard stats.</div>;
+    console.error("Error fetching stats:", error)
+    return (
+      <div className="min-h-screen flex flex-col bg-background">
+        <Header />
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <BarChart3 className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+            <h2 className="text-xl font-bold text-foreground mb-2">
+              Unable to Load Stats
+            </h2>
+            <p className="text-muted-foreground">
+              Could not connect to the analytics service. Please try again
+              later.
+            </p>
+          </div>
+        </div>
+        <Footer />
+      </div>
+    )
   }
 
   return (
-    <main className="min-h-screen p-8 bg-slate-950 text-slate-50 font-sans">
-      <div className="max-w-7xl mx-auto space-y-8">
-        
-        <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-          <div>
-            <h1 className="text-3xl font-bold">Model Performance Matrix</h1>
-            <p className="text-slate-400 mt-1">1-Day Lead Time • Highs & Lows Combined</p>
-          </div>
-          <Link href="/" className="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm font-medium transition-colors">
-            ← Back to Live Bets
-          </Link>
-        </div>
+    <div className="min-h-screen flex flex-col bg-background">
+      <Header />
 
-        <div className="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden shadow-2xl">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-slate-950/50 text-slate-400 border-b border-slate-800">
-                <tr>
-                  <th className="p-4 font-semibold">Station</th>
-                  <th className="p-4 font-semibold">Model Source</th>
-                  <th className="p-4 font-semibold text-right">Sample (n)</th>
-                  <th className="p-4 font-semibold text-right">Bias</th>
-                  <th className="p-4 font-semibold text-right">MAE</th>
-                  <th className="p-4 font-semibold text-right">RMSE</th>
-                  <th className="p-4 font-semibold text-right">Within 1°F</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800">
-                {/* 2. Type the map arguments here */}
-                {stats?.map((stat: DashboardStat, idx: number) => (
-                  <tr key={idx} className="hover:bg-slate-800/50 transition-colors">
-                    <td className="p-4 font-medium text-blue-400">{stat.station_id}</td>
-                    <td className="p-4 font-mono">{stat.source}</td>
-                    <td className="p-4 text-right text-slate-400">{stat.n}</td>
-                    
-                    <td className={`p-4 text-right font-mono ${
-                      stat.bias > 0 ? 'text-red-400' : stat.bias < 0 ? 'text-blue-400' : 'text-slate-300'
-                    }`}>
-                      {stat.bias > 0 ? '+' : ''}{stat.bias.toFixed(2)}°
-                    </td>
-                    
-                    <td className={`p-4 text-right font-mono font-bold ${stat.mae <= 1.5 ? 'text-emerald-400' : 'text-slate-200'}`}>
-                      {stat.mae.toFixed(2)}°
-                    </td>
-                    
-                    <td className="p-4 text-right font-mono text-slate-300">
-                      {stat.rmse.toFixed(2)}°
-                    </td>
-                    
-                    <td className="p-4 text-right font-mono">
-                      <span className={`px-2 py-1 rounded bg-slate-950 border ${
-                        stat.pct_within_1f >= 0.5 ? 'border-emerald-900 text-emerald-400' : 'border-slate-800 text-slate-400'
-                      }`}>
-                        {(stat.pct_within_1f * 100).toFixed(1)}%
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      <main className="flex-1">
+        <div className="max-w-7xl mx-auto px-6 py-8">
+          {/* Page Header */}
+          <div className="mb-8">
+            <h2 className="text-3xl font-bold text-foreground tracking-tight text-balance">
+              Model Performance Matrix
+            </h2>
+            <p className="text-muted-foreground mt-2 max-w-2xl text-pretty">
+              Accuracy metrics for our weather forecasting models across all
+              tracked stations. 1-day lead time, highs and lows combined.
+            </p>
           </div>
-        </div>
 
-      </div>
-    </main>
-  );
+          {/* Stats Table */}
+          <StatsTable stats={stats as DashboardStat[]} />
+        </div>
+      </main>
+
+      <Footer />
+    </div>
+  )
 }
