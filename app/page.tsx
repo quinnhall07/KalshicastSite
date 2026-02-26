@@ -53,9 +53,13 @@ export default async function Home() {
       const previous = obsList[1];
       const deltaHigh = latest.observed_high - previous.observed_high;
       
+      // FIX: Safely handle the locations join whether Supabase returns an array or object
+      const loc = latest.locations as any;
+      const cityName = (Array.isArray(loc) ? loc[0]?.city : loc?.city) || latest.station_id;
+      
       return {
         station_id: latest.station_id,
-        city: latest.locations?.city || latest.station_id,
+        city: cityName,
         temp_now: latest.observed_high,
         temp_prev: previous.observed_high,
         delta: deltaHigh,
@@ -68,17 +72,26 @@ export default async function Home() {
   // Process Errors: Filter out nulls and sort by worst Mean Absolute Error (MAE)
   const bustsData = (rawErrors || [])
     .filter(err => err.mae !== null)
-    .sort((a, b) => b.mae - a.mae)
+    .sort((a, b) => (b.mae ?? 0) - (a.mae ?? 0))
     .slice(0, 8)
-    .map(err => ({
-      station_id: err.station_id,
-      city: err.locations?.city || err.station_id,
-      source: err.forecast_runs?.source || 'Unknown',
-      target_date: err.target_date,
-      err_high: err.err_high,
-      err_low: err.err_low,
-      mae: err.mae
-    }));
+    .map(err => {
+      // FIX: Safely handle both joined tables
+      const loc = err.locations as any;
+      const run = err.forecast_runs as any;
+      
+      const cityName = (Array.isArray(loc) ? loc[0]?.city : loc?.city) || err.station_id;
+      const sourceName = (Array.isArray(run) ? run[0]?.source : run?.source) || 'Unknown';
+
+      return {
+        station_id: err.station_id,
+        city: cityName,
+        source: sourceName,
+        target_date: err.target_date,
+        err_high: err.err_high,
+        err_low: err.err_low,
+        mae: err.mae
+      };
+    });
 
   // --- 3. RENDER UI ---
   return (
