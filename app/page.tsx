@@ -1,13 +1,17 @@
 // app/page.tsx
 import { supabase } from '../utils/supabase';
+import PredictionChart from '../components/PredictionChart';
+import ErrorDistributionChart from '../components/ErrorDistributionChart';
+import VolatilitySparkline from '../components/VolatilitySparkline';
 
 export const dynamic = 'force-dynamic';
 
 export default async function Home() {
-  // --- 1. DATA FETCHING (Wired to your actual schema) ---
+  // --- 1. DATA FETCHING ---
   
-  // Fetch latest daily observations for the Volatility Matrix
-  const { data: rawObs, error: obsError } = await supabase
+  // A. Fetch latest daily observations for the Volatility Matrix
+  // Increased to 200 so we have enough historical rows to build 7-day sparklines
+  const { data: rawObs } = await supabase
     .from('observations')
     .select(`
       date,
@@ -17,10 +21,10 @@ export default async function Home() {
       locations ( city, state )
     `)
     .order('date', { ascending: false })
-    .limit(50);
+    .limit(200);
 
-  // Fetch the largest recent forecast errors for the Truth Tracker
-  const { data: rawErrors, error: errError } = await supabase
+  // B. Fetch the largest recent forecast errors for the Truth Tracker
+  const { data: rawErrors } = await supabase
     .from('forecast_errors')
     .select(`
       target_date,
@@ -34,9 +38,35 @@ export default async function Home() {
     .order('created_at', { ascending: false })
     .limit(20);
 
+  // C. Fetch REAL Chart Data for KNYC (Line Chart)
+  const chartStationId = 'KNYC'; 
+  
+  const { data: chartObs } = await supabase
+    .from('observations')
+    .select('date, observed_high')
+    .eq('station_id', chartStationId)
+    .order('date', { ascending: false })
+    .limit(100);
+
+  const { data: chartForecasts } = await supabase
+    .from('forecasts_daily')
+    .select('target_date, high_f')
+    .eq('station_id', chartStationId)
+    .order('target_date', { ascending: false })
+    .limit(100);
+
+  // D. Fetch a larger dataset for the Global Error Distribution (Bar Chart)
+  const { data: rawMae } = await supabase
+    .from('forecast_errors')
+    .select('mae')
+    .not('mae', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(500);
+
+
   // --- 2. DATA PROCESSING ---
 
-  // Process Observations: Group by station to find Day-over-Day swings
+  // Process Volatility
   const obsByStation = new Map();
   rawObs?.forEach(obs => {
     if (!obsByStation.has(obs.station_id)) {
@@ -46,36 +76,47 @@ export default async function Home() {
   });
 
   const volatilityData = Array.from(obsByStation.values())
-    .filter(obsList => obsList.length >= 2) // We need at least 2 days to calculate a swing
+    .filter(obsList => obsList.length >= 2)
     .map(obsList => {
-      // Assuming sorted by date descending
       const latest = obsList[0];
       const previous = obsList[1];
       const deltaHigh = latest.observed_high - previous.observed_high;
       
-      // FIX: Safely handle the locations join whether Supabase returns an array or object
       const loc = latest.locations as any;
       const cityName = (Array.isArray(loc) ? loc[0]?.city : loc?.city) || latest.station_id;
       
+      // Build 7-day history for the sparkline (reversed so oldest is on the left)
+      const sparklineData = obsList
+        .slice(0, 7)
+        .reverse()
+        .map((o: any) => ({ temp: o.observed_high }));
+
+      // Determine sparkline color based on volatility
+      let sparklineColor = '#94a3b8'; // default gray
+      if (deltaHigh >= 10) sparklineColor = '#f87171'; // red for huge spike
+      else if (deltaHigh <= -10) sparklineColor = '#60a5fa'; // blue for huge drop
+      else if (Math.abs(deltaHigh) >= 5) sparklineColor = '#fbbf24'; // yellow for moderate
+
       return {
         station_id: latest.station_id,
         city: cityName,
         temp_now: latest.observed_high,
         temp_prev: previous.observed_high,
         delta: deltaHigh,
-        date: latest.date
+        date: latest.date,
+        sparklineData,
+        sparklineColor
       };
     })
-    .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta)) // Sort by most extreme swing
+    .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
     .slice(0, 6);
 
-  // Process Errors: Filter out nulls and sort by worst Mean Absolute Error (MAE)
+  // Process Errors (Busts)
   const bustsData = (rawErrors || [])
     .filter(err => err.mae !== null)
     .sort((a, b) => (b.mae ?? 0) - (a.mae ?? 0))
     .slice(0, 8)
     .map(err => {
-      // FIX: Safely handle both joined tables
       const loc = err.locations as any;
       const run = err.forecast_runs as any;
       
@@ -92,6 +133,61 @@ export default async function Home() {
         mae: err.mae
       };
     });
+
+  // Process Line Chart Data
+  const chartDataMap = new Map();
+
+  chartObs?.forEach(obs => {
+    const cleanDate = obs.date.split('T')[0];
+    if (!chartDataMap.has(cleanDate)) {
+      const dateParts = cleanDate.split('-');
+      const month = new Date(`${dateParts[0]}-${dateParts[1]}-01`).toLocaleString('default', { month: 'short' });
+      const formattedDate = `${month} ${parseInt(dateParts[2])}`; 
+      
+      chartDataMap.set(cleanDate, {
+        date: formattedDate,
+        actual: obs.observed_high,
+        predicted: null 
+      });
+    }
+  });
+
+  chartForecasts?.forEach(forecast => {
+    const cleanTargetDate = forecast.target_date.split('T')[0];
+    if (chartDataMap.has(cleanTargetDate)) {
+      const entry = chartDataMap.get(cleanTargetDate);
+      if (entry.predicted === null) {
+        entry.predicted = forecast.high_f;
+      }
+    }
+  });
+
+  const realChartData = Array.from(chartDataMap.values())
+    .filter(day => day.predicted !== null && day.actual !== null)
+    .reverse()
+    .slice(-14); 
+
+  // Process Bar Chart Distribution Bins
+  const bins = {
+    '0-1°': 0,
+    '1-2°': 0,
+    '2-3°': 0,
+    '3-4°': 0,
+    '4-5°': 0,
+    '5°+': 0
+  };
+
+  rawMae?.forEach(row => {
+    const err = row.mae;
+    if (err < 1) bins['0-1°']++;
+    else if (err < 2) bins['1-2°']++;
+    else if (err < 3) bins['2-3°']++;
+    else if (err < 4) bins['3-4°']++;
+    else if (err < 5) bins['4-5°']++;
+    else bins['5°+']++;
+  });
+
+  const distributionData = Object.entries(bins).map(([bin, count]) => ({ bin, count }));
 
   // --- 3. RENDER UI ---
   return (
@@ -131,11 +227,16 @@ export default async function Home() {
                     </span>
                   </div>
 
-                  <div className="flex items-end justify-between">
+                  {/* Sparkline layout integration */}
+                  <div className="flex items-end justify-between mt-2">
                     <div>
                       <p className="text-xs text-slate-400 mb-1">Latest High</p>
                       <p className="text-3xl font-mono font-bold">{cond.temp_now}°</p>
                     </div>
+                    
+                    {/* The New Sparkline Component! */}
+                    <VolatilitySparkline data={cond.sparklineData} color={cond.sparklineColor} />
+                    
                     <div className="text-right">
                       <p className="text-xs text-slate-400 mb-1">Previous High</p>
                       <p className="text-xl font-mono text-slate-500">{cond.temp_prev}°</p>
@@ -201,6 +302,19 @@ export default async function Home() {
               </div>
             </div>
           )}
+        </section>
+
+        {/* --- SECTION 3: QUANTITATIVE CHARTS --- */}
+        <section className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <PredictionChart 
+            data={realChartData} 
+            title="Prediction vs. Reality" 
+            stationId={chartStationId} 
+          />
+          <ErrorDistributionChart 
+            data={distributionData} 
+            title="Global Error Distribution" 
+          />
         </section>
 
       </div>
